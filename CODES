@@ -1,0 +1,259 @@
+//LAMBDA CODE:
+
+
+import json
+import boto3
+from decimal import Decimal
+
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('Employeetable')
+
+def lambda_handler(event, context):
+    method = event.get("httpMethod", "POST")
+    body = json.loads(event["body"], parse_float=Decimal)
+
+    if method == "POST":
+        table.put_item(Item=body)
+        return {"statusCode": 200, "body": json.dumps({"message": "Employee added."})}
+
+    elif method == "GET":
+        uid = body.get("uid")
+        response = table.get_item(Key={"uid": uid})
+        return {"statusCode": 200, "body": json.dumps(response.get("Item", {}))}
+
+    elif method == "PUT":
+        uid = body.get("uid")
+        update_expression = "SET #n = :n, age = :a, department = :d"
+        expression_values = {
+            ":n": body["name"],
+            ":a": Decimal(str(body["age"])),
+            ":d": body["department"]
+        }
+        table.update_item(
+            Key={"uid": uid},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_values,
+            ExpressionAttributeNames={"#n": "name"}
+        )
+        return {"statusCode": 200, "body": json.dumps({"message": "Employee updated."})}
+
+    return {"statusCode": 400, "body": json.dumps({"message": "Unsupported method"})}
+
+
+
+//test:
+
+{
+  "httpMethod": "POST",
+  "body": "{\"uid\": \"E101\", \"name\": \"Sunil\", \"age\": 23, \"department\": \"AI & ML\"}"
+}
+
+
+
+//INLINE POLICY JSON
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:PutItem",
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:aws:dynamodb:*:*:table/Employeetable"
+    }
+  ]
+}
+
+
+
+
+//dashboard--index.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Employee Portal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+  <div class="max-w-xl mx-auto mt-10 bg-white shadow-md rounded-lg p-6">
+    <h2 class="text-2xl font-semibold text-gray-700 mb-6">Employee Form</h2>
+    
+    <form id="empForm" class="space-y-4">
+      <input name="uid" type="text" placeholder="Employee UID" class="w-full px-4 py-2 border rounded" required />
+      <input name="name" type="text" placeholder="Full Name" class="w-full px-4 py-2 border rounded" required />
+      <input name="age" type="number" placeholder="Age" class="w-full px-4 py-2 border rounded" required />
+      <input name="department" type="text" placeholder="Department" class="w-full px-4 py-2 border rounded" required />
+      
+      <div class="flex justify-between mt-4">
+        <button type="button" onclick="submitForm('POST')" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Add</button>
+        <button type="button" onclick="submitForm('GET')" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Get</button>
+        <button type="button" onclick="submitForm('PUT')" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Update</button>
+      </div>
+    </form>
+
+    <div class="mt-6" id="result"></div>
+  </div>
+
+  <script>
+    async function submitForm(method) {
+      const form = document.getElementById("empForm");
+      const data = Object.fromEntries(new FormData(form).entries());
+
+      const response = await fetch("https://sjpddeely7.execute-api.ap-southeast-1.amazonaws.com/employee/details", {
+        method: "POST",
+        body: JSON.stringify({ httpMethod: method, body: JSON.stringify(data) }),
+        headers: { "Content-Type": "application/json" }
+      });
+
+      const result = await response.json();
+      document.getElementById("result").innerText = JSON.stringify(result, null, 2);
+    }
+  </script>
+</body>
+</html>
+
+
+
+//replace your-api-url with invoke url**
+
+
+//login--index.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Employee Portal Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet"/>
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #f4f7f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+
+    .login-container {
+      background: white;
+      padding: 40px 30px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #333;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: bold;
+      color: #555;
+    }
+
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 20px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background-color: #007bff;
+      color: white;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    .error {
+      color: red;
+      text-align: center;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <h2>Employee Login</h2>
+    <form method="POST" action="login.php">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" required/>
+
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required/>
+
+      <button type="submit">Login</button>
+    </form>
+  </div>
+</body>
+</html>
+
+
+
+//login.php
+
+<?php
+$host = "login-db.cr6w4ggyi31x.ap-south-1.rds.amazonaws.com";
+$user = "admin";
+$password = "grim106418";
+$dbname = "login_system";
+
+// Create connection
+$conn = new mysqli($host, $user, $password, $dbname);
+if ($conn->connect_error) {
+    die("<h3 style='color:red;text-align:center;'>Database connection failed: " . $conn->connect_error . "</h3>");
+}
+
+// Validate input
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    $username = trim($_POST['username'] ?? '');
+    $password = trim($_POST['password'] ?? '');
+
+    if ($username === '' || $password === '') {
+        echo "<h3 style='color:red;text-align:center;'>Both fields are required</h3>";
+    } else {
+        // Use prepared statement to prevent SQL injection
+        $stmt = $conn->prepare("SELECT * FROM users WHERE username = ? AND password = ?");
+        $stmt->bind_param("ss", $username, $password);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result && $result->num_rows > 0) {
+            // Login successful, redirect to the employee form page
+            header("Location: /employee");
+            exit();
+        } else {
+            echo "<h3 style='color:red;text-align:center;'>Invalid username or password</h3>";
+        }
+
+        $stmt->close();
+    }
+}
+
+$conn->close();
+?>
+
+//Replace host with your rds endpoint
+  Replace password with your rds password
