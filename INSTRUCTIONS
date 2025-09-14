@@ -1,0 +1,238 @@
+Step 1:
+
+create a lambda function and dynamo db and rest api with a frontend file named index.html and upload it in s3
+
+Step 2: 
+-launch a private and public ec2 for now to test the dashboard/frontend 
+-to access live frontend from s3 each time a request is hit: 
+ -in your private ec2
+  -sudo yum update -y
+   sudo yum install -y httpd awscli perl
+
+  //create a CGI script (Run this command)
+    -- sudo mkdir -p /var/www/cgi-bin --
+
+sudo tee /var/www/cgi-bin/fetch_s3.cgi > /dev/null << 'EOF'
+#!/bin/bash
+echo "Content-type: text/html"
+echo ""
+
+# Replace with your bucket and region
+aws s3 cp s3://your-bucket-name/index.html - --region your-region
+EOF-----
+
+//replace your-bucket-name with your actual s3 bucket name and type your region in place of your-region (ex: ap-south-1)
+
+
+//Run this command
+sudo chmod +x /var/www/cgi-bin/fetch_s3.cgi
+
+
+Step 3:
+Enable CGi in Apache
+
+sudo nano /etc/httpd/conf/httpd.conf
+
+//add this
+AddHandler cgi-script .cgi
+<Directory "/var/www/cgi-bin">
+    Options +ExecCGI
+    AddHandler cgi-script .cgi
+    Require all granted
+</Directory>
+
+Step 4:
+//Restart Apache
+ systemctl restart httpd 
+
+✅ Test Private EC2 CGI Works:
+
+curl http://localhost/cgi-bin/fetch_s3.cgi
+You should see the HTML content of your index.html from S3.
+
+Step 5:
+in public ec2
+
+sudo yum update -y
+sudo yum install -y httpd 
+
+sudo nano /etc/httpd/conf/httpd.conf
+
+//paste this
+<VirtualHost *:80>
+    ProxyPreserveHost On
+    ProxyPass / http://11.0.134.231/cgi-bin/fetch_s3.cgi
+    ProxyPassReverse / http://11.0.134.231/cgi-bin/fetch_s3.cgi
+</VirtualHost>
+
+
+//replace with your private ec2 IP address
+
+sudo systemctl restart httpd
+
+//ensure you allow port 80 or HTTP traffic on both the servers 
+NOTE: NAT is needed because a file is being fetched from s3 and internet is required.
+
+TEST:
+http://<Public EC2 Public IP>
+
+✅50% is done
+Congratulations
+IF not 
+
+DO IT AGAIN!!!!
+
+lets proceed
+
+
+STEP 6:
+
+-create another VPC in the same region with different CIDR range 
+-ensure you have 2 public subnets in different availability zones (IMPORTANT: FOR RDS SETUP) and 1 private subnet 
+-create a database (RDS) in free tier and copy the endpoint (will need it later)
+-create a private and public ec2 instance launch the private ec2 through SSM or bastion host
+
+-launch any one of the server and make sure to enable HTTP and MYSQL 3306 on both the servers
+-IN RDS security group set inbound 3306 and save 
+
+-In any one of the servers
+
+//Run the command(to install driver or package to connect RDS)
+ -yum install mariadb105
+
+//Run the command
+ -mysql -h <RDS-ENDPOINT> -u <USERNAME> -p
+
+---this should open the db panel
+
+//paste this schema
+
+CREATE DATABASE login_system;
+USE login_system;
+
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL
+);
+
+INSERT INTO users (username, password) VALUES ('admin', 'admin123');
+INSERT INTO users (username, password) VALUES ('sunil', 'pass1234');  //DUMPING EXAMPLE VALUES
+
+
+TO CHECK: 
+ SELECT * FROM users;
+
+
+STEP 7:
+--open the private ec2 
+
+run this command 
+sudo yum install -y php php-mysqlnd httpd
+//this installs php and tomcat 
+
+create two files in var/www/html copy the content of index.html and login.php
+index.html 
+login.php
+
+//START AND ENABLE TOMCAT
+ systemctl start httpd && systemctl enable httpd
+
+
+STEP 8:
+
+//Launch public ec2
+//RUN THE COMMAND
+sudo yum install -y nginx
+sudo systemctl enable nginx
+sudo systemctl start nginx
+
+//We will use nginx instead of httpd to access files from private server from another VPC
+
+
+
+sudo nginx -t
+
+//test nginx to see the syntax is OK and everything is up and running
+
+//navigate to 
+sudo nano /etc/nginx/conf.d/reverse-proxy.conf
+
+add this:
+
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://CLOUD-A_PRIVATE_EC2_IP;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /employee/ {
+    proxy_pass http://CLOUD-B_PRIVATEIP/index.cgi;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+   }
+
+}
+//replace CLOUD-A_PRIVATE_EC2_IP with the IP of private EC2 instance
+//replace CLOUD-B-PRIVATEIP with the IP of private EC2 instance in the other VPC 
+
+sudo nginx -t && sudo systemctl reload nginx
+
+
+//on your private ec2 in VPC where dashboard is present (CLOUD-B)
+sudo nano /etc/httpd/conf.d/cgi.conf
+
+
+paste this:
+ScriptAlias /cgi-bin/ "/var/www/cgi-bin/"
+<Directory "/var/www/cgi-bin">
+    AllowOverride None
+    Options +ExecCGI
+    AddHandler cgi-script .cgi
+    Require all granted
+</Directory>
+<Directory "/var/www/html">
+    Options +ExecCGI
+    AddHandler cgi-script .cgi
+    Require all granted
+</Directory>
+
+
+
+sudo nano /var/www/html/index.cgi
+
+
+//paste this:
+
+#!/bin/bash
+echo "Content-type: text/html"
+echo ""
+/var/www/cgi-bin/fetch_s3.cgi
+
+sudo chmod +x /var/www/html/index.cgi
+
+//restart tomcat
+-systemctl restart httpd
+
+//paste this in the login VPC in any one of the servers if peering is proper and connections are properly set then the dashboard content should print
+
+curl http://<private-ip>/index.cgi
+
+hit the public ip of ec2 in cloud A
+
+GOOD NIGHT!
+
+
+
+
+
+
+
+
